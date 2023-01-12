@@ -1,0 +1,190 @@
+# 계획
+
+AJ.GG의 기본 준비. 
+RiotAPI와 Postman, quicktype을 이용해서 API를 이용하기 위한 DTO 작성과 코어데이터-API를 사용하기 위한 아키텍처 고민. 
+
+# 기록
+
+작성한 파일들이 많아 대표적인 몇가지만 기록.
+
+```swift 
+import Foundation
+import CoreData
+
+@MainActor
+class RegisterSummonerViewModel: ObservableObject {
+    
+    let title = "소환사 이름을 입력해주세요."
+    private let summonerManager: SummonerManager
+    private let summonerService: SummonerServiceEnable
+    private let leagueV4Service: LeagueV4ServiceEnable
+    
+    @Published var summonerName: String = ""
+    @Published var tier: LeagueTier?
+    @Published var summoners: [Summoner] = []
+    
+    var isSummonerRegistered: Bool {
+        !summoners.isEmpty
+    }
+  
+    
+    init(summonerService: SummonerServiceEnable, leagueV4Service: LeagueV4ServiceEnable) {
+        self.summonerService = summonerService
+        self.leagueV4Service = leagueV4Service
+        self.summonerManager = SummonerManager()
+        self.summoners = summonerManager.getAll()
+    }
+    
+    @MainActor
+    func buttonTapped() async {
+        do {
+            let summonerResult = await summonerService.summonerByName(summonerName: self.summonerName)
+            let summoner = try summonerResult.get()
+            let tierResult = await leagueV4Service.leagueTierBySummonerID(summonerID: summoner.id)
+            let tier = try tierResult.get()
+            self.tier = tier
+            self.summonerManager.save(summonerDTO: summoner, tier: tier)
+            self.summoners = summonerManager.getAll()
+        } catch {
+            
+        }
+    }
+
+    func deleteSummonersAll() {
+        summonerManager.deleteAll()
+    }
+}
+
+```swift
+class SummonerManager {
+    
+    let container: NSPersistentContainer
+    
+    
+    init() {
+        self.container = NSPersistentContainer(name: "AJ_GG")
+        
+        container.loadPersistentStores { description, error in
+           if let error = error {
+               print("ERROR LOADING CORE DATA")
+               print(error.localizedDescription)
+           } else {
+               print("SUCCESSFULLY LOAD CORE DATA : Register")
+           }
+       }
+    }
+    
+    func save(summonerDTO: SummonerDTO, tier: LeagueTier?) {
+        _ = Summoner(summonerDTO: summonerDTO, leagueTier: tier, context: self.container.viewContext)
+        
+        do {
+            try container.viewContext.save()
+        } catch {
+            print("ERROR SAVING CORE DATA")
+            print(error.localizedDescription)
+        }
+    }
+    
+    func getAll() -> [Summoner] {
+        let request = NSFetchRequest<Summoner>(entityName: "Summoner")
+        do {
+            let summoners = try container.viewContext.fetch(request)
+            print("Fetch Success")
+            return summoners
+        } catch {
+            print("ERROR FETCHING CORE DATA")
+            print(error.localizedDescription)
+        }
+        
+        return [Summoner]()
+    }
+    
+    func deleteAll() {
+        let fetchRequest: NSFetchRequest<NSFetchRequestResult> = Summoner.fetchRequest()
+        let batchDeleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+        _ = try? container.viewContext.execute(batchDeleteRequest)
+    }
+    
+}
+
+```swift
+
+struct LeagueTier {
+    let tier: Tier?
+    let rank: Rank?
+    let points: Int32
+    
+    var emblem: String {
+        self.tier?.emblem ?? "IRON"
+    }
+}
+
+enum Tier: String, CaseIterable{
+    case iron = "IRON"
+    case bronze = "BRONZE"
+    case silver = "SILVER"
+    case gold = "GOLD"
+    case platinum = "PLATINUM"
+    case diamond = "DIAMOND"
+    case master = "MASTER"
+    case grandmaster = "GRANDMASTER"
+    case challenger = "CHALLENGER"
+    
+    var emblem: String {
+        switch self {
+        case .iron:
+            return "Emblem_Iron"
+        case .bronze:
+            return "Emblem_Bronze"
+        case .silver:
+            return "Emblem_Silver"
+        case .gold:
+            return "Emblem_Gold"
+        case .platinum:
+            return "Emblem_Platinum"
+        case .diamond:
+            return "Emblem_Diamond"
+        case .master:
+            return "Emblem_Master"
+        case .grandmaster:
+            return "Emblem_Grandmaster"
+        case .challenger:
+            return "Emblem_Challenger"
+        }
+    }
+}
+
+extension Tier {
+    init? (_ tierString: String) {
+        switch tierString {
+        case "IRON":
+            self = .iron
+        case "BRONZE":
+            self = .bronze
+        case "SILVER":
+            self = .silver
+        case "GOLD":
+            self = .gold
+        case "PLATINUM":
+            self = .platinum
+        case "DIAMOND":
+            self = .diamond
+        case "MASTER":
+            self = .master
+        case "GRANDMASTER":
+            self = .grandmaster
+        case "CHALLENGER":
+            self = .challenger
+        default:
+            return nil 
+        }
+    }
+}
+
+enum Rank: String {
+    case i = "I"
+    case ii = "II"
+    case iii = "III"
+    case iv = "IV"
+}
+```
